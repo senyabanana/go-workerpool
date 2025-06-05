@@ -13,6 +13,14 @@ type Worker struct {
 	wg     *sync.WaitGroup
 }
 
+func NewWorker(id int, cancel context.CancelFunc, wg *sync.WaitGroup) *Worker {
+	return &Worker{
+		ID:     id,
+		cancel: cancel,
+		wg:     wg,
+	}
+}
+
 func (w *Worker) Start(ctx context.Context, taskChan <-chan string) {
 	w.wg.Add(1)
 	go func() {
@@ -59,11 +67,7 @@ func (p *WorkerPool) AddWorker() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	worker := &Worker{
-		ID:     id,
-		cancel: cancel,
-		wg:     &p.wg,
-	}
+	worker := NewWorker(id, cancel, &p.wg)
 
 	p.workers[id] = worker
 	worker.Start(ctx, p.taskChan)
@@ -97,7 +101,7 @@ func (p *WorkerPool) Shutdown() {
 	}
 
 	p.workers = make(map[int]*Worker)
-	//close(p.taskChan)
+	close(p.taskChan)
 
 	p.wg.Wait()
 	fmt.Println("All workers have shut down")
@@ -114,12 +118,22 @@ func main() {
 
 	stopChan := make(chan struct{})
 
+	tasks := []string{
+		"Download file",
+		"Parse JSON",
+		"Resize image",
+		"Send email",
+		"Clean up",
+		"Generate report",
+		"Upload to S3",
+	}
+
 	go func() {
-		for i := 0; i < 100; i++ {
+		for _, task := range tasks {
 			select {
 			case <-stopChan:
 				return
-			case pool.taskChan <- fmt.Sprintf("Task #%d", i):
+			case pool.taskChan <- task:
 				time.Sleep(500 * time.Millisecond)
 			}
 		}
@@ -131,7 +145,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 	pool.RemoveWorker(2)
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	close(stopChan)
 	pool.Shutdown()
