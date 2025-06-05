@@ -1,10 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	shadesOfGoExample = "50_shades_of_go_example.txt"
 )
 
 type Worker struct {
@@ -101,10 +108,34 @@ func (p *WorkerPool) Shutdown() {
 	}
 
 	p.workers = make(map[int]*Worker)
-	close(p.taskChan)
+	//close(p.taskChan)
 
 	p.wg.Wait()
 	fmt.Println("All workers have shut down")
+}
+
+func loadFromFile(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lines = append(lines, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan file: %w", err)
+	}
+
+	return lines, nil
 }
 
 func main() {
@@ -116,19 +147,17 @@ func main() {
 	pool.AddWorker()
 	pool.AddWorker()
 
-	stopChan := make(chan struct{})
-
-	tasks := []string{
-		"Download file",
-		"Parse JSON",
-		"Resize image",
-		"Send email",
-		"Clean up",
-		"Generate report",
-		"Upload to S3",
+	tasks, err := loadFromFile(shadesOfGoExample)
+	if err != nil {
+		fmt.Printf("failed to load tasks: %v\n", err)
+		os.Exit(1)
 	}
 
+	stopChan := make(chan struct{})
+	doneChan := make(chan struct{})
+
 	go func() {
+		defer close(doneChan)
 		for _, task := range tasks {
 			select {
 			case <-stopChan:
@@ -139,13 +168,20 @@ func main() {
 		}
 	}()
 
-	time.Sleep(2 * time.Second)
-	pool.RemoveWorker(0)
+	select {
+	case <-time.After(50 * time.Second):
+		fmt.Println("Waiting time is up")
+	case <-doneChan:
+		fmt.Println("All jobs from the file have been sent")
+	}
 
-	time.Sleep(2 * time.Second)
-	pool.RemoveWorker(2)
+	time.Sleep(5 * time.Second)
+	pool.RemoveWorker(1)
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(15 * time.Second)
+	pool.RemoveWorker(3)
+
+	time.Sleep(25 * time.Second)
 
 	close(stopChan)
 	pool.Shutdown()
